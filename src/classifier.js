@@ -32,7 +32,7 @@ const request = require("superagent");
 
 exports.Classifier = class Classifier {
 
-  constructor(modelFilepath) {
+  constructor({ modelFilepath }) {
     this.fasttextClassifier = new fasttext.Classifier(modelFilepath);
   }
 
@@ -53,17 +53,12 @@ exports.Classifier = class Classifier {
   }
 
   static async ofRemoteUri(modelUri) {
-    console.info("checking latest model");
     const latestModelVersion = await fetchLatestModelVersion();
-    console.info(`latest model version: ${latestModelVersion}`);
-    const modelFilepath = path.join(os.tmpdir(), `${latestModelVersion}.bin`);
-    if (await latestModelExistsLocally()) {
-      console.info("latest model found locally");
-    } else {
-      console.info("latest model not found locally");
+    const modelFilepath = path.join(os.tmpdir(), "ticket-tagger" , `${latestModelVersion}.bin`);
+    if (!(await latestModelExistsLocally())) {
       await fetchLatestModel();
     }
-    return new Classifier(modelFilepath);
+    return new Classifier({ modelFilepath });
 
     async function fetchLatestModelVersion() {
       const response = await request.head(modelUri);
@@ -79,12 +74,9 @@ exports.Classifier = class Classifier {
     async function fetchLatestModel() {
       console.info("fetching latest model");
       await pipeline(
-        request.get(modelUri).on('progress', logProgress),
+        request.get(modelUri),
         fs.createWriteStream(modelFilepath),
       );
-      function logProgress(event) {
-        console.info(`latest model fetch progress: ${event.percent}`);
-      }
     }
   }
 }

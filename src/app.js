@@ -25,20 +25,20 @@ const express = require("express");
 const { Webhooks } = require("@octokit/webhooks");
 const appInsights = require("applicationinsights");
 const { Classifier } = require("./classifier");
-const github = require("./github");
+const { Github } = require("./github");
 const config = require("./config");
 
 module.exports = async function App() {
   const app = express();
+  const github = new Github({
+    appId: config.GITHUB_APP_ID,
+    privateKey: config.GITHUB_CERT,
+  });
   const classifier = await Classifier.ofRemoteUri(config.FASTTEXT_MODEL_URI);
 
   app.get("/status", (req, res) => res.status(200).send({ message: "ticket-tagger lives!" }));
 
-  const webhooks = new Webhooks({ 
-    secret: config.GITHUB_SECRET,
-    path: "/webhook"
-  });
-
+  const webhooks = new Webhooks({ secret: config.GITHUB_SECRET });
   webhooks.on("issues.opened", async ({ payload }) => {
     /* extract relevant issue metadata */
     const { title, labels, body, url } = payload.issue;
@@ -48,27 +48,18 @@ module.exports = async function App() {
       `${title} ${body}`
     );
 
-    if (similarity > 0) {
-      /* extract installation id */
-      const installationId = payload.installation.id;
-
-      /* get access token for repository */
-      const accessToken = await github.getAccessToken({ installationId });
-
-      /* update label */
-      await github.setLabels({
-        labels: [...labels, prediction],
-        issue: url,
-        accessToken
-      });
-    }
+    /* set label on issue */
+    const installation = await github.installation({ installationId: payload.installation.id });
+    await installation.setIssueLabels({
+      issueUrl: url,
+      labels: [...labels, prediction],
+    });
   });
-
   webhooks.on("installation.created", async () => {
     appInsights.defaultClient.trackEvent({ name: 'installation' });
   });
-  app.use(webhooks.middleware);
 
+  app.use('/webhook',webhooks.middleware);
 
   return app;
 };
